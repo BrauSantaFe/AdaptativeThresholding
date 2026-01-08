@@ -405,9 +405,7 @@ if __name__ == "__main__":
     print("3. Iniciando Algoritmo Genético...")
     ga = GeneticAlgorithm(
         pop_size=50,
-        generations=70,
-        LB=[2.0, 2.0, 0.0, 0.2, 0.3, 2.0, -0.8],
-        UB=[4.0, 4.0, 0.5, 1.0, 1.0, 3.0, -0.4]
+        generations=70
     )
 
     best_thresholds = ga.apply_genetic_algorithm(features_data)
