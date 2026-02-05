@@ -187,7 +187,7 @@ class Segmenter3d:
 if __name__ == "__main__":
 
     # cargamos las bandas
-    ruta = "/home/brauliosg/Documents/Mexico/FIRE/update_0/chihuahua/20220513#"
+    ruta = "/home/brauliosg/Documents/Mexico/FIRE/previos/20220413_FWW3_FFV18_FCW35"
     bandas = ['B4','B5','B6','B7']
 
     print("Cargando y corrigiendo bandas...")
@@ -229,38 +229,26 @@ if __name__ == "__main__":
     ga7.LB, ga7.UB = LB, UB
     ga7.n_vars = 7
     T7 = ga7.run(F7d)
-    plt.imshow(Segmenter7d(T7).segment(F7d).reshape(image_shape), cmap="magma")
-    plt.title("7D"); plt.axis("off"); plt.show()
+    mask7 = Segmenter7d(T7).segment(F7d).reshape(image_shape)
+    print(f"Umbrales 7D: {T7}")
 
-    # # # -------- 6D --------
-    # print("Ejecutando algoritmo genético para 6D...")
+    # guardamos la máscara en la misma ruta
+    meta = band.meta.copy()  # copia del meta original
+    meta.update(dtype=rio.uint8, count=1)
 
-    # idx6 = [0,1,2,3,4,6]
-    # ga6 = GeneticAlgorithm(generations=70)
-    # ga6.LB, ga6.UB = LB[idx6], UB[idx6]
-    # ga6.n_vars = 6
-    # T6 = ga6.run(F7d)
-    # plt.imshow(Segmenter6d(T6).segment(F7d).reshape(image_shape), cmap="magma")
-    # plt.title("6D"); plt.axis("off"); plt.show()
+    # convertimos 0/1 a 0/255
+    mask7_uint8 = (mask7 * 255).astype(np.uint8)
 
-    # # -------- 5D --------
-    # print("Ejecutando algoritmo genético para 5D...")
-    # idx5 = [0,3,4,5,6]
-    # ga5 = GeneticAlgorithm(generations=70)
-    # ga5.LB, ga5.UB = LB[idx5], UB[idx5]
-    # ga5.n_vars = 5
-    # T5 = ga5.run(F5d)
-    # plt.imshow(Segmenter5d(T5).segment(F5d).reshape(image_shape), cmap="magma")
-    # plt.title("5D"); plt.axis("off"); plt.show()
+    out_path = os.path.join(ruta, "ActiveFire_detection_false.tif")
+    with rio.open(out_path, "w", **meta) as dst:
+        dst.write(mask7_uint8, 1)
 
-    # # -------- 3D --------
-    # print("Ejecutando algoritmo genético para 3D...")
-    # idx3 = [3,4,6]
-    # ga3 = GeneticAlgorithm(generations=70)
-    # ga3.LB, ga3.UB = LB[idx3], UB[idx3]
-    # ga3.n_vars = 3
-    # T3 = ga3.run(F3d)
-    # plt.imshow(Segmenter3d(T3).segment(F3d).reshape(image_shape), cmap="magma")
-    # plt.title("3D"); plt.axis("off"); plt.show()
+    print(f'Máscara guardada correctamente en {out_path}')
 
-    # print("Proceso finalizado correctamente.")
+
+    # ploteamos la máscara
+    plt.imshow(mask7, cmap="viridis")
+    plt.title("Máscara 7D"); plt.axis("off"); 
+    plt.show()
+
+    
