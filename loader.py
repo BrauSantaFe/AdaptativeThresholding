@@ -149,37 +149,7 @@ class Segmenter7d:
                 (F[:, 2] > T[2]) &
                 ((F[:, 3] > 0.8 * T[3]) | (F[:, 4] > 0.5 * T[4])))
         return mask.astype(np.uint8)
-    
-class Segmenter6d:
-    def __init__(self, thresholds):
-        self.thresholds = thresholds
-
-    def segment(self, features_data):
-        F = features_data
-        T = self.thresholds
-        mask = (((F[:, 0] > T[0]) | (F[:, 5] > T[5])) &
-                (F[:, 1] > T[1]) &
-                (F[:, 2] > T[2]) &
-                ((F[:, 3] > 0.8 * T[3]) | (F[:, 4] > 0.5 * T[4])))
-        return mask.astype(np.uint8)
-    
-class Segmenter5d:
-    def __init__(self, T): self.T = T
-    def segment(self, F):
-        T = self.T
-        return ((F[:,0]>T[0]) | (F[:,3]>T[3]) &
-                (F[:,1]>T[1]) &
-                (F[:,2]>T[2]) &
-                (F[:,4]<T[4])).astype(np.uint8)
-
-class Segmenter3d:
-    def __init__(self, T): self.T = T
-    def segment(self, F):
-        T = self.T
-        return ((F[:,0]>T[0]) &
-                (F[:,1]>T[1]) &
-                (F[:,2]<T[2])).astype(np.uint8)     
-
+  
 
 # ==================
 # MAIN
@@ -187,68 +157,94 @@ class Segmenter3d:
 if __name__ == "__main__":
 
     # cargamos las bandas
-    ruta = "/home/brauliosg/Documents/Mexico/FIRE/previos/20220413_FWW3_FFV18_FCW35"
-    bandas = ['B4','B5','B6','B7']
+    root = "/home/brauliosg/Documents/Mexico/FIRE/update_0/durango"
+    bandas = ['B4', 'B5', 'B6', 'B7']
 
-    print("Cargando y corrigiendo bandas...")
+    for subdir in os.listdir(root):
+        ruta = os.path.join(root, subdir)
 
-    band_data = []
-    image_shape = None
+        # aseguramos que sea un directorio válido
+        if not os.path.isdir(ruta):
+            continue
 
-    for b in bandas:
-        band = Band(b, ruta)
-        band.load()
-        band.MTL_load()
-        rc = Radiometric_correction(band)
-        data = rc.apply_radiometric_correction()
-        if image_shape is None:
-            image_shape = data.shape
-        band_data.append(data.flatten())
+        ID = ruta[-5:]
 
-    print("Extrayendo características...")
-    eps = 1e-6
-    F1 = band_data[3]/(band_data[1]+eps)
-    F2 = band_data[3]/(band_data[2]+eps)
-    F3 = band_data[3]-band_data[1]
-    F4 = band_data[3]
-    F5 = band_data[2]
-    F6 = band_data[3]/(band_data[0]+eps)
-    F7 = (band_data[1]-band_data[3])/(band_data[1]+band_data[3]+eps)
+        # si ya existe la máscara, saltamos el proceso
+        if os.path.isfile(os.path.join(ruta, "Active_fire_detection.tif")):
+            print(f"Máscara ya existe para el ID: {ID}, saltando...")
+            continue
 
-    F7d = np.nan_to_num(np.stack([F1,F2,F3,F4,F5,F6,F7],1))
-    F5d = np.nan_to_num(np.stack([F1,F2,F3,F6,F7],1))
-    F3d = np.nan_to_num(np.stack([F1,F2,F3],1))
+        print('-' * 50)
+        print(f"1. Cargando y corrigiendo bandas... ID: {ID}")
 
-    # estos son los limites del espacio de busqueda
-    LB = np.array([0.5,0.5,-0.5,0.1,0.05,1.0,-0.8])
-    UB = np.array([3.5,3.5, 0.5,1.0,1.0,5.0, 0.2])
+        band_data = []
+        image_shape = None
 
-    # -------- 7D --------
-    print("Ejecutando algoritmo genético para 7D...")
-    ga7 = GeneticAlgorithm(generations=70)
-    ga7.LB, ga7.UB = LB, UB
-    ga7.n_vars = 7
-    T7 = ga7.run(F7d)
-    mask7 = Segmenter7d(T7).segment(F7d).reshape(image_shape)
-    print(f"Umbrales 7D: {T7}")
+        for b in bandas:
+            band = Band(b, ruta)
+            band.load()
+            band.MTL_load()
 
-    # guardamos la máscara en la misma ruta
-    meta = band.meta.copy()  # copia del meta original
-    meta.update(dtype=rio.uint8, count=1)
+            rc = Radiometric_correction(band)
+            data = rc.apply_radiometric_correction()
 
-    # convertimos 0/1 a 0/255
-    mask7_uint8 = (mask7 * 255).astype(np.uint8)
+            if image_shape is None:
+                image_shape = data.shape
 
-    out_path = os.path.join(ruta, "ActiveFire_detection_false.tif")
-    with rio.open(out_path, "w", **meta) as dst:
-        dst.write(mask7_uint8, 1)
+            band_data.append(data.flatten())
 
-    print(f'Máscara guardada correctamente en {out_path}')
+        print('-' * 50)
+        print("2. Extrayendo características...")
 
+        eps = 1e-6
+        F1 = band_data[3] / (band_data[1] + eps)
+        F2 = band_data[3] / (band_data[2] + eps)
+        F3 = band_data[3] - band_data[1]
+        F4 = band_data[3]
+        F5 = band_data[2]
+        F6 = band_data[3] / (band_data[0] + eps)
+        F7 = (band_data[1] - band_data[3]) / (band_data[1] + band_data[3] + eps)
 
-    # ploteamos la máscara
-    plt.imshow(mask7, cmap="viridis")
-    plt.title("Máscara 7D"); plt.axis("off"); 
-    plt.show()
+        F7d = np.nan_to_num(np.stack([F1, F2, F3, F4, F5, F6, F7], axis=1))
+        F5d = np.nan_to_num(np.stack([F1, F2, F3, F6, F7], axis=1))
+        F3d = np.nan_to_num(np.stack([F1, F2, F3], axis=1))
 
-    
+        # límites del espacio de búsqueda
+        LB = np.array([0.5, 0.5, -0.5, 0.1, 0.05, 1.0, -0.8])
+        UB = np.array([3.5, 3.5,  0.5, 1.0, 1.0, 5.0,  0.2])
+
+        # -------- 7D --------
+        print('-' * 50)
+        print("3. Ejecutando algoritmo genético...")
+
+        ga7 = GeneticAlgorithm(generations=150)
+        ga7.LB = LB
+        ga7.UB = UB
+        ga7.n_vars = 7
+
+        T7 = ga7.run(F7d)
+        mask7 = Segmenter7d(T7).segment(F7d).reshape(image_shape)
+
+        print(f"Los umbrales obtenidos para el ID {ID}: {T7}")
+
+        # guardamos la máscara
+        print('-' * 50)
+        print("4. Guardando máscara de detección...")
+
+        meta = band.meta.copy()
+        meta.update(dtype=rio.uint8, count=1)
+
+        # convertimos 0/1 a 0/255
+        mask7_uint8 = (mask7 * 255).astype(np.uint8)
+
+        if 'previos' in ruta:
+            out_path = os.path.join(ruta, "False_alarm_correction.tif")
+        else:
+            out_path = os.path.join(ruta, "Active_fire_detection.tif")
+
+        with rio.open(out_path, "w", **meta) as dst:
+            dst.write(mask7_uint8, 1)
+
+        print(f"Máscara guardada correctamente en {out_path}")
+        print('-' * 50)
+        print(f"Proceso completado para el ID: {ID}")
