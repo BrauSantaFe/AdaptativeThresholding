@@ -151,29 +151,32 @@ class Segmenter7d:
         return mask.astype(np.uint8)
   
 
-# ==================
+# --------------------------------------------------------
 # MAIN
 
 if __name__ == "__main__":
 
-    # cargamos las bandas
-    root = "/home/brauliosg/Documents/Mexico/FIRE/update_0/durango"
+    root = "/home/brauliosg/Documents/Mexico/FIRE/previos/20220411_FQL36_FVZ96_FED15"
     bandas = ['B4', 'B5', 'B6', 'B7']
 
     for subdir in os.listdir(root):
         ruta = os.path.join(root, subdir)
 
-        # aseguramos que sea un directorio válido
         if not os.path.isdir(ruta):
             continue
 
         ID = ruta[-5:]
 
-        # si ya existe la máscara, saltamos el proceso
-        if os.path.isfile(os.path.join(ruta, "Active_fire_detection.tif")):
-            print(f"Máscara ya existe para el ID: {ID}, saltando...")
-            continue
+        palabras_clave = ["Active_fire_detection", "False_alarm_correction"]
 
+        if any(
+            any(p in archivo for p in palabras_clave)
+            for archivo in os.listdir(ruta)
+        ):
+            print(f"Archivo de salida ya existe para el ID {ID}, saltando...")
+            continue   # ← ESTE sí salta al siguiente subdir
+
+        # SOLO entra aquí si NO encontró archivos
         print('-' * 50)
         print(f"1. Cargando y corrigiendo bandas... ID: {ID}")
 
@@ -184,7 +187,6 @@ if __name__ == "__main__":
             band = Band(b, ruta)
             band.load()
             band.MTL_load()
-
             rc = Radiometric_correction(band)
             data = rc.apply_radiometric_correction()
 
@@ -217,7 +219,7 @@ if __name__ == "__main__":
         print('-' * 50)
         print("3. Ejecutando algoritmo genético...")
 
-        ga7 = GeneticAlgorithm(generations=150)
+        ga7 = GeneticAlgorithm(generations=50)
         ga7.LB = LB
         ga7.UB = UB
         ga7.n_vars = 7
