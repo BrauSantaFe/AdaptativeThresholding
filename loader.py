@@ -3,6 +3,7 @@ import os
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
+import gc
 
 
 class Band:
@@ -21,7 +22,7 @@ class Band:
             raise FileNotFoundError(f"No se encontró {self.banda}")
         ruta_banda = os.path.join(self.ruta, ruta_banda[0])
         with rio.open(ruta_banda) as src:
-            self.data = src.read(1).astype(np.float64)
+            self.data = src.read(1).astype(np.float32)
             self.meta = src.meta
         return self.data
 
@@ -156,7 +157,7 @@ class Segmenter7d:
 
 if __name__ == "__main__":
 
-    root = "/home/brauliosg/Documents/Mexico/FIRE/previos/20220411_FQL36_FVZ96_FED15"
+    root = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/previos/20240301_FUT76"
     bandas = ['B4', 'B5', 'B6', 'B7']
 
     for subdir in os.listdir(root):
@@ -165,7 +166,7 @@ if __name__ == "__main__":
         if not os.path.isdir(ruta):
             continue
 
-        ID = ruta[-5:]
+        ID = root[-5:] + '_' +ruta[-8:]
 
         palabras_clave = ["Active_fire_detection", "False_alarm_correction"]
 
@@ -194,6 +195,7 @@ if __name__ == "__main__":
                 image_shape = data.shape
 
             band_data.append(data.flatten())
+           
 
         print('-' * 50)
         print("2. Extrayendo características...")
@@ -219,7 +221,7 @@ if __name__ == "__main__":
         print('-' * 50)
         print("3. Ejecutando algoritmo genético...")
 
-        ga7 = GeneticAlgorithm(generations=50)
+        ga7 = GeneticAlgorithm(generations=150)
         ga7.LB = LB
         ga7.UB = UB
         ga7.n_vars = 7
@@ -240,9 +242,9 @@ if __name__ == "__main__":
         mask7_uint8 = (mask7 * 255).astype(np.uint8)
 
         if 'previos' in ruta:
-            out_path = os.path.join(ruta, "False_alarm_correction.tif")
+            out_path = os.path.join(ruta, f"False_alarm_correction_{ID}.tif")
         else:
-            out_path = os.path.join(ruta, "Active_fire_detection.tif")
+            out_path = os.path.join(ruta, f"Active_fire_detection_{ID}.tif")
 
         with rio.open(out_path, "w", **meta) as dst:
             dst.write(mask7_uint8, 1)
@@ -250,3 +252,16 @@ if __name__ == "__main__":
         print(f"Máscara guardada correctamente en {out_path}")
         print('-' * 50)
         print(f"Proceso completado para el ID: {ID}")
+        # -------------------------------------------------
+# LIBERAR MEMORIA ANTES DE SIGUIENTE SUBDIRECTORIO
+        # -------------------------------------------------
+
+        del band_data
+        del F1, F2, F3, F4, F5, F6, F7
+        del F7d, F5d, F3d
+        del mask7
+        del mask7_uint8
+        del ga7
+        del T7
+
+        gc.collect()
