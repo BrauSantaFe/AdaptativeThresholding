@@ -11,7 +11,7 @@ from scipy.ndimage import binary_dilation
 # ---------------------------
 
 root = "/home/brauliosg/Documents/Mexico/FIRE/prueba"
-root_prev = "/home/brauliosg/Documents/Mexico/FIRE/previos"
+root_prev = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/previos"
 
 # Umbral en reflectancia real 
 UMBRAL_B7 = 0.3
@@ -234,6 +234,23 @@ for estado in os.listdir(root):
 
                 # Convertimos 0/1 a 0/255
                 mascara_final = (mascara_final * 255).astype(np.uint8)
+                
+                # Pixeles originales
+                total_mask_actual = np.sum(mask_actual > 0)
+
+                # Pixeles eliminados por mascaras previas (solo donde mask_actual es 1)
+                total_eliminados_prev = np.sum(np.logical_and(mask_actual > 0, mask_dilatada > 0))
+
+                # Pixeles eliminados por banda 7 (solo donde mask_actual sigue siendo 1 después de previas)
+                total_eliminados_b7 = np.sum(np.logical_and(mask_actual > 0, np.logical_and(np.logical_not(mask_dilatada), band7_prev_median_dilatada > 0)))
+
+                # Pixeles que quedan en la mascara final
+                total_final = np.sum(mascara_final > 0)
+
+                print(f"Pixeles en máscara original: {total_mask_actual}")
+                print(f"Pixeles eliminados por mascaras previas: {total_eliminados_prev}")
+                print(f"Pixeles eliminados por banda 7: {total_eliminados_b7}")
+                print(f"Pixeles en máscara final corregida: {total_final}")
 
                 # Definimos ruta de salida
                 output_path = os.path.join(dia_path, f"Mask_corrected_{ID}.tif")
