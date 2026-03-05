@@ -5,20 +5,21 @@ import rasterio as rio
 from rasterio.warp import reproject, Resampling
 import matplotlib.pyplot as plt
 from scipy.ndimage import binary_dilation
+import csv
 
 # ---------------------------
 # CONFIGURACIÓN
 # ---------------------------
 
-root = "/home/brauliosg/Documents/Mexico/FIRE/prueba"
+root = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/prueba"
 root_prev = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/previos"
 
 # Umbral en reflectancia real 
-UMBRAL_B7 = 0.3
+UMBRAL_B7 = 0.37
 
 # Dilataciones independientes
 DILATACION_B7 = 5
-DILATACION_MASK = 9
+DILATACION_MASK = 7
 
 
 
@@ -205,6 +206,11 @@ for estado in os.listdir(root):
                     axis=0
                 )
 
+                # plt.figure(figsize=(15,15))
+                # plt.imshow(band7_prev_median, cmap='seismic')
+                # plt.colorbar()
+                # plt.show()
+
 
                 # Aplicamos la dilatación a la mascara combinada
                 mask_dilatada = binary_dilation(mask_combinada, iterations=DILATACION_MASK).astype(np.uint8)
@@ -226,7 +232,40 @@ for estado in os.listdir(root):
                     np.logical_not(band7_prev_median_dilatada)
                 )
 
-                # guardamos la mascara final corregida en la misma carpeta del dia actual con el nombre "Mask_corrrected_ID.tif"
+                # # Superposición simple: banda 7 corregida + máscara dilatada
+                # plt.figure(figsize=(10,10))
+                # plt.imshow(band7_corr, cmap='gray')  # imagen base
+                # plt.imshow(band7_prev_median_dilatada, cmap='Reds', alpha=0.5)  # máscara semitransparente
+                # plt.title('Band7 Corr + Band7 Prev Dilatada')
+                # plt.axis('off')
+                # plt.show()
+
+                # # Comparación de máscaras
+                # fig, axes = plt.subplots(1,3, figsize=(18,6))
+
+                # # Máscara dilatada
+                # axes[0].imshow(band7_corr, cmap='gray')  # base
+                # axes[0].imshow(mask_dilatada, cmap='Blues', alpha=0.5)  # máscara semitransparente
+                # axes[0].set_title('Mask Dilatada')
+                # axes[0].axis('off')
+
+                # # Band7 prev median dilatada
+                # axes[1].imshow(band7_corr, cmap='gray')  # base
+                # axes[1].imshow(band7_prev_median_dilatada, cmap='Reds', alpha=0.5)
+                # axes[1].set_title('Band7 Prev Median Dilatada')
+                # axes[1].axis('off')
+
+                # # Comparación de todas las máscaras
+                # axes[2].imshow(band7_corr, cmap='gray')  # base
+                # axes[2].imshow(mask_dilatada, cmap='Blues', alpha=0.4)
+                # axes[2].imshow(band7_prev_median_dilatada, cmap='Reds', alpha=0.4)
+                # axes[2].imshow(mask_actual, cmap='Greens', alpha=0.4)
+                # axes[2].set_title('Comparación de máscaras')
+                # axes[2].axis('off')
+
+                # plt.tight_layout()
+                # plt.show()
+                # # guardamos la mascara final corregida en la misma carpeta del dia actual con el nombre "Mask_corrrected_ID.tif"
                 
 
                 print('-' * 50)
@@ -247,10 +286,27 @@ for estado in os.listdir(root):
                 # Pixeles que quedan en la mascara final
                 total_final = np.sum(mascara_final > 0)
 
-                print(f"Pixeles en máscara original: {total_mask_actual}")
-                print(f"Pixeles eliminados por mascaras previas: {total_eliminados_prev}")
-                print(f"Pixeles eliminados por banda 7: {total_eliminados_b7}")
-                print(f"Pixeles en máscara final corregida: {total_final}")
+                comision_error = total_eliminados_b7/(np.sum(mask_actual>0) - np.sum(mascara_final>0))
+
+                
+
+
+                # Guardamos el csv 
+                print(' --- Guardando datos en el CSV ')
+
+                estadisticas = ["ID", "Pixeles detectados", "Pixeles corregido por mascaras (persistencia temporal)", "Pixeles corregidos por brillo en banda 7(falsa alarma)","pixeles finales", "comission Error"]
+                row = [ID, total_mask_actual,total_eliminados_prev, total_eliminados_b7, total_final, comision_error]
+
+                estadisticas_path = os.path.join(root,'estadisticas.csv')
+
+                file_exists = os.path.isfile(estadisticas_path)
+
+                with open(estadisticas_path, 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    if not file_exists: 
+                        writer.writerow(estadisticas)
+                    writer.writerow(row)
+
 
                 # Definimos ruta de salida
                 output_path = os.path.join(dia_path, f"Mask_corrected_{ID}.tif")
@@ -271,3 +327,4 @@ for estado in os.listdir(root):
                     dst.write(mascara_final, 1)
 
                 print(f"Máscara guardada en: {output_path}")
+
