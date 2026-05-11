@@ -4,20 +4,22 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import gc
+from typing import Optional, List, Tuple
 
 
 class Band:
-    def __init__(self, banda, ruta):
-        self.banda = banda
-        self.ruta = ruta
-        self.data = None
-        self.meta = None
-        self.reflectance_mult = None
-        self.reflectance_add = None
+    def __init__(self, banda: str, ruta: str) -> None:
+        self.banda: str = banda
+        self.ruta: str = ruta
+        self.data: Optional[np.ndarray] = None
+        self.meta: Optional[dict] = None
+        self.reflectance_mult: Optional[float] = None
+        self.reflectance_add: Optional[float] = None
+        self.sun_elevation: Optional[float] = None
         
-    def load(self):
-        ruta_banda = glob.glob('**/*' + self.banda + '*.TIF',
-                               root_dir=self.ruta, recursive=True)
+    def load(self) -> np.ndarray:
+        ruta_banda: List[str] = glob.glob('**/*' + self.banda + '*.TIF',
+                                          root_dir=self.ruta, recursive=True)
         if not ruta_banda:
             raise FileNotFoundError(f"No se encontró {self.banda}")
         ruta_banda = os.path.join(self.ruta, ruta_banda[0])
@@ -26,55 +28,62 @@ class Band:
             self.meta = src.meta
         return self.data
 
-    def MTL_load(self):
-        ruta_mtl = glob.glob('**/*MTL.txt',
-                             root_dir=self.ruta, recursive=True)
+    def MTL_load(self) -> None:
+        ruta_mtl: List[str] = glob.glob('**/*MTL.txt',
+                                        root_dir=self.ruta, recursive=True)
+        if not ruta_mtl:
+            raise FileNotFoundError("No se encontró archivo MTL")
         ruta_mtl = os.path.join(self.ruta, ruta_mtl[0])
-        band_number = self.banda.replace('B', '')
+        band_number: str = self.banda.replace('B', '')
         with open(ruta_mtl) as f:
             for line in f:
+                line = line.strip()
                 if f'REFLECTANCE_MULT_BAND_{band_number}' in line:
                     self.reflectance_mult = float(line.split('=')[1])
                 elif f'REFLECTANCE_ADD_BAND_{band_number}' in line:
                     self.reflectance_add = float(line.split('=')[1])
+                elif 'SUN_ELEVATION' in line:
+                    self.sun_elevation = float(line.split('=')[1])
+        if self.reflectance_mult is None or self.reflectance_add is None:
+            raise ValueError("Faltan coeficientes de reflectancia")
+        if self.sun_elevation is None:
+            raise ValueError("Falta SUN_ELEVATION")
 
 
 class Radiometric_correction:
-    def __init__(self, band):
-        self.band = band
+    def __init__(self, band: Band) -> None:
+        self.band: Band = band
 
-    def apply_radiometric_correction(self):
-        return self.band.reflectance_mult * self.band.data + self.band.reflectance_add
+    def apply_radiometric_correction(self) -> np.ndarray:
+        rho: np.ndarray = self.band.reflectance_mult * self.band.data + self.band.reflectance_add
+        return rho / np.sin(np.deg2rad(self.band.sun_elevation))
 
-
-# ==================================================
-# Genetic Algorithm
 
 class GeneticAlgorithm:
-    def __init__(self, pop_size=50, generations=100,
-                 pc=0.7, pm=0.2, elite_size=2,
-                 sample_fraction=0.01, min_sample=65536):
+    def __init__(self, pop_size: int = 50, generations: int = 100,
+                 pc: float = 0.8, pm: float = 0.2, elite_size: int = 4,
+                 sample_fraction: float = 0.01, min_sample: int = 65536) -> None:
 
-        self.pop_size = pop_size
-        self.generations = generations
-        self.pc = pc
-        self.pm = pm
-        self.elite_size = elite_size
-        self.sample_fraction = sample_fraction
-        self.min_sample = min_sample
+        self.pop_size: int = pop_size
+        self.generations: int = generations
+        self.pc: float = pc
+        self.pm: float = pm
+        self.elite_size: int = elite_size
+        self.sample_fraction: float = sample_fraction
+        self.min_sample: int = min_sample
 
-        self.LB = np.array([0.5, 0.5, -0.5, 0.1, 0.05, 1.0, -0.8])
-        self.UB = np.array([3.5, 3.5, 0.5, 1.0, 1.0, 5.0, 0.2])
-        self.n_vars = len(self.LB)
+        self.LB: np.ndarray = np.array([0.5, 0.5,  0.1, 0.05, 1.0])
+        self.UB: np.ndarray = np.array([3.5, 3.5,  1.0, 1.0, 5.0])
+        self.n_vars: int = len(self.LB)
 
-        self.fitness_history = []
+        self.fitness_history: List[float] = []
 
-    def initialize_population(self):
+    def initialize_population(self) -> np.ndarray:
         return self.LB + (self.UB - self.LB) * np.random.rand(self.pop_size, self.n_vars)
 
-    def evaluate_kapur(self, thresholds, features_sample):
-        eps = 1e-12
-        total_entropy = 0
+    def evaluate_kapur(self, thresholds: np.ndarray, features_sample: np.ndarray) -> float:
+        eps: float = 1e-12
+        total_entropy: float = 0.0
         for i in range(self.n_vars):
             hist, bins = np.histogram(features_sample[:, i], bins=256,
                                       range=(self.LB[i], self.UB[i]))
@@ -89,7 +98,7 @@ class GeneticAlgorithm:
                 total_entropy += (h0 + h1)
         return total_entropy
 
-    def apply_selection(self, pop, fitness):
+    def apply_selection(self, pop: np.ndarray, fitness: np.ndarray) -> np.ndarray:
         new_pop = np.zeros_like(pop)
         elite = np.argsort(fitness)[-self.elite_size:]
         new_pop[:self.elite_size] = pop[elite]
@@ -98,7 +107,7 @@ class GeneticAlgorithm:
             new_pop[i] = pop[a] if fitness[a] > fitness[b] else pop[b]
         return new_pop
 
-    def apply_crossover(self, pop):
+    def apply_crossover(self, pop: np.ndarray) -> np.ndarray:
         new_pop = pop.copy()
         for i in range(self.elite_size, self.pop_size, 2):
             if i+1 < self.pop_size and np.random.rand() < self.pc:
@@ -108,21 +117,22 @@ class GeneticAlgorithm:
                 new_pop[i+1] = a*p2 + (1-a)*p1
         return new_pop
 
-    def apply_mutation(self, pop):
+    def apply_mutation(self, pop: np.ndarray) -> np.ndarray:
         for i in range(self.elite_size, self.pop_size):
             for j in range(self.n_vars):
                 if np.random.rand() < self.pm:
-                    pop[i,j] += np.random.normal(0, 0.1*(self.UB[j]-self.LB[j]))
+                    pop[i,j] += np.random.normal(0, 0.2*(self.UB[j]-self.LB[j]))
                     pop[i,j] = np.clip(pop[i,j], self.LB[j], self.UB[j])
         return pop
 
-    def run(self, X):
-        N = X.shape[0]
-        Ns = min(max(self.min_sample, int(N*self.sample_fraction)), N)
-        Xs = X[np.random.choice(N, Ns, replace=False)]
+    def run(self, X: np.ndarray) -> np.ndarray:
+        N: int = X.shape[0]
+        Ns: int = min(max(self.min_sample, int(N*self.sample_fraction)), N)
+        Xs: np.ndarray = X[np.random.choice(N, Ns, replace=False)]
 
-        pop = self.initialize_population()
-        best, best_fit = None, -np.inf
+        pop: np.ndarray = self.initialize_population()
+        best: Optional[np.ndarray] = None
+        best_fit: float = -np.inf
 
         for g in range(self.generations):
             fitness = np.array([self.evaluate_kapur(ind, Xs) for ind in pop])
@@ -138,130 +148,125 @@ class GeneticAlgorithm:
         return best
 
 
-class Segmenter7d:
-    def __init__(self, thresholds):
-        self.thresholds = thresholds
+class Segmenter5d:
+    def __init__(self, thresholds: np.ndarray) -> None:
+        self.thresholds: np.ndarray = thresholds
 
-    def segment(self, features_data):
+    def segment(self, features_data: np.ndarray) -> np.ndarray:
         F = features_data
         T = self.thresholds
-        mask = (((F[:, 0] > T[0]) | (F[:, 5] > T[5]) | (F[:, 6] < T[6])) &
+        mask = (((F[:, 0] > T[0]) | (F[:, 4] > T[4])) &
                 (F[:, 1] > T[1]) &
-                (F[:, 2] > T[2]) &
-                ((F[:, 3] > 0.8 * T[3]) | (F[:, 4] > 0.5 * T[4])))
+                ((F[:, 2] > 0.8 * T[2]) | (F[:, 3] > 0.5 * T[3])))
         return mask.astype(np.uint8)
-  
 
-# --------------------------------------------------------
+
+# ------------------------------------------------3-------
 # MAIN
 
 if __name__ == "__main__":
-
-    root = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/previos/20240301_FUT76"
+    # Apuntamos a la raíz de la actualización
+    root_update = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/previos"
     bandas = ['B4', 'B5', 'B6', 'B7']
 
-    for subdir in os.listdir(root):
-        ruta = os.path.join(root, subdir)
-
-        if not os.path.isdir(ruta):
+    # 1. Iterar sobre cada estado (aguascalientes, chihuahua, etc.)
+    for estado in os.listdir(root_update):
+        ruta_estado = os.path.join(root_update, estado)
+        
+        if not os.path.isdir(ruta_estado):
             continue
+            
+        print(f"\n" + "="*60)
+        print(f"PROCESANDO ESTADO: {estado.upper()}")
+        print("="*60)
+        ID = ruta_estado.split('_')[-1]  # Extraemos el ID del estado
 
-        ID = root[-5:] + '_' +ruta[-8:]
+        # 2. Iterar sobre cada carpeta de fecha/ID (ej: 20200613_FXX62)
+        for subdir in os.listdir(ruta_estado):
+            ruta = os.path.join(ruta_estado, subdir)
 
-        palabras_clave = ["Active_fire_detection", "False_alarm_correction"]
+            if not os.path.isdir(ruta):
+                continue
 
-        if any(
-            any(p in archivo for p in palabras_clave)
-            for archivo in os.listdir(ruta)
-        ):
-            print(f"Archivo de salida ya existe para el ID {ID}, saltando...")
-            continue   # ← ESTE sí salta al siguiente subdir
+            # Extraemos el ID dinámicamente (lo que esté después del último '_')
+            # Para '20200613_FXX62' devolverá 'FXX62'
+            #ID = subdir.split('_')[-1] if '_' in subdir else subdir
 
-        # SOLO entra aquí si NO encontró archivos
-        print('-' * 50)
-        print(f"1. Cargando y corrigiendo bandas... ID: {ID}")
+            palabras_clave = []
 
-        band_data = []
-        image_shape = None
+            # Verificar si ya se procesó esta carpeta
+            if any(
+                any(p in archivo for p in palabras_clave)
+                for archivo in os.listdir(ruta)
+            ):
+                print(f"--- Salto: Resultados ya existen para ID {ID} en {estado}")
+                continue
 
-        for b in bandas:
-            band = Band(b, ruta)
-            band.load()
-            band.MTL_load()
-            rc = Radiometric_correction(band)
-            data = rc.apply_radiometric_correction()
+            print(f"\n>> Iniciando proceso - Estado: {estado} | ID: {ID}")
+            
+            try:
+                # --- CARGA Y CORRECCIÓN ---
+                band_data = []
+                image_shape = None
 
-            if image_shape is None:
-                image_shape = data.shape
+                for b in bandas:
+                    band = Band(b, ruta)
+                    band.load()
+                    band.MTL_load()
+                    rc = Radiometric_correction(band)
+                    data = rc.apply_radiometric_correction()
 
-            band_data.append(data.flatten())
-           
+                    if image_shape is None:
+                        image_shape = data.shape
 
-        print('-' * 50)
-        print("2. Extrayendo características...")
+                    band_data.append(data.flatten())
 
-        eps = 1e-6
-        F1 = band_data[3] / (band_data[1] + eps)
-        F2 = band_data[3] / (band_data[2] + eps)
-        F3 = band_data[3] - band_data[1]
-        F4 = band_data[3]
-        F5 = band_data[2]
-        F6 = band_data[3] / (band_data[0] + eps)
-        F7 = (band_data[1] - band_data[3]) / (band_data[1] + band_data[3] + eps)
+                # --- EXTRACCIÓN DE CARACTERÍSTICAS (5D) ---
+                eps = 1e-6
+                F1 = band_data[3] / (band_data[1] + eps) # B7/B5
+                F2 = band_data[3] / (band_data[2] + eps) # B7/B6
+                F3 = band_data[3]                        # B7
+                F4 = band_data[2]                        # B6
+                F5 = band_data[3] / (band_data[0] + eps) # B7/B4
 
-        F7d = np.nan_to_num(np.stack([F1, F2, F3, F4, F5, F6, F7], axis=1))
-        F5d = np.nan_to_num(np.stack([F1, F2, F3, F6, F7], axis=1))
-        F3d = np.nan_to_num(np.stack([F1, F2, F3], axis=1))
+                F5d = np.nan_to_num(np.stack([F1, F2, F3, F4, F5], axis=1))
 
-        # límites del espacio de búsqueda
-        LB = np.array([0.5, 0.5, -0.5, 0.1, 0.05, 1.0, -0.8])
-        UB = np.array([3.5, 3.5,  0.5, 1.0, 1.0, 5.0,  0.2])
+                # Límites del espacio de búsqueda (Asegúrate que coincidan con tus 5 variables)
+                LB = np.array([0.5, 0.5, 0.1, 0.05, 1.0])
+                UB = np.array([3.5, 3.5, 1.0, 1.0, 5.0])
 
-        # -------- 7D --------
-        print('-' * 50)
-        print("3. Ejecutando algoritmo genético...")
+                # --- ALGORITMO GENÉTICO ---
+                print(f"Ejecutando GA para {ID}...")
+                ga5 = GeneticAlgorithm(generations=100)
+                ga5.LB = LB
+                ga5.UB = UB
+                ga5.n_vars = 5
 
-        ga7 = GeneticAlgorithm(generations=150)
-        ga7.LB = LB
-        ga7.UB = UB
-        ga7.n_vars = 7
+                T5 = ga5.run(F5d)
+                mask5 = Segmenter5d(T5).segment(F5d).reshape(image_shape)
 
-        T7 = ga7.run(F7d)
-        mask7 = Segmenter7d(T7).segment(F7d).reshape(image_shape)
+                # --- GUARDADO ---
+                meta = band.meta.copy()
+                meta.update(dtype=rio.uint8, count=1)
+                mask5_uint8 = (mask5 * 255).astype(np.uint8)
 
-        print(f"Los umbrales obtenidos para el ID {ID}: {T7}")
+                # Definir nombre de salida según el contexto
+                prefix = "False_alarm_correction" if 'previos' in ruta else "Active_fire_detection"
+                out_path = os.path.join(ruta, f"{prefix}_5d_2_{ID}.tif")
 
-        # guardamos la máscara
-        print('-' * 50)
-        print("4. Guardando máscara de detección...")
+                with rio.open(out_path, "w", **meta) as dst:
+                    dst.write(mask5_uint8, 1)
 
-        meta = band.meta.copy()
-        meta.update(dtype=rio.uint8, count=1)
+                print(f"ÉXITO: Máscara guardada en {out_path}")
 
-        # convertimos 0/1 a 0/255
-        mask7_uint8 = (mask7 * 255).astype(np.uint8)
+            except Exception as e:
+                print(f"ERROR procesando {ID} en {estado}: {e}")
 
-        if 'previos' in ruta:
-            out_path = os.path.join(ruta, f"False_alarm_correction_{ID}.tif")
-        else:
-            out_path = os.path.join(ruta, f"Active_fire_detection_{ID}.tif")
+            finally:
+                # Limpieza agresiva de memoria incluso si hay error
+                if 'band_data' in locals(): del band_data
+                if 'F5d' in locals(): del F5d
+                if 'mask5' in locals(): del mask5
+                gc.collect()
 
-        with rio.open(out_path, "w", **meta) as dst:
-            dst.write(mask7_uint8, 1)
-
-        print(f"Máscara guardada correctamente en {out_path}")
-        print('-' * 50)
-        print(f"Proceso completado para el ID: {ID}")
-        # -------------------------------------------------
-# LIBERAR MEMORIA ANTES DE SIGUIENTE SUBDIRECTORIO
-        # -------------------------------------------------
-
-        del band_data
-        del F1, F2, F3, F4, F5, F6, F7
-        del F7d, F5d, F3d
-        del mask7
-        del mask7_uint8
-        del ga7
-        del T7
-
-        gc.collect()
+    print("\nPROCESAMIENTO GLOBAL FINALIZADO.")

@@ -11,15 +11,15 @@ import csv
 # CONFIGURACIÓN
 # ---------------------------
 
-root = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/prueba"
+root = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/update_0"
 root_prev = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/previos"
 
 # Umbral en reflectancia real 
-UMBRAL_B7 = 0.37
+UMBRAL_B7 = 0.35
 
 # Dilataciones independientes
-DILATACION_B7 = 5
-DILATACION_MASK = 7
+DILATACION_B7 = 2
+DILATACION_MASK = 9
 
 
 
@@ -31,7 +31,7 @@ class Band:
         self.meta = None
         self.reflectance_mult = None
         self.reflectance_add = None
-        
+        self.sun_elevation = None
     def load(self):
         ruta_banda = glob.glob('**/*' + self.banda + '*.TIF',
                                root_dir=self.ruta, recursive=True)
@@ -50,22 +50,25 @@ class Band:
             raise FileNotFoundError("No se encontró archivo MTL")
         ruta_mtl = os.path.join(self.ruta, ruta_mtl[0])
         band_number = self.banda.replace('B', '')
+        # Dentro de MTL_load(self):
         with open(ruta_mtl) as f:
             for line in f:
                 if f'REFLECTANCE_MULT_BAND_{band_number}' in line:
                     self.reflectance_mult = float(line.split('=')[1])
                 elif f'REFLECTANCE_ADD_BAND_{band_number}' in line:
                     self.reflectance_add = float(line.split('=')[1])
-
+                # AGREGA ESTO:
+                elif 'SUN_ELEVATION' in line:
+                    self.sun_elevation = float(line.split('=')[1])
 
 class Radiometric_correction:
     def __init__(self, band):
         self.band = band
 
     def apply_radiometric_correction(self):
-        return self.band.reflectance_mult * self.band.data + self.band.reflectance_add
-
-
+        # Reflectancia TOA con corrección solar
+        rho = self.band.reflectance_mult * self.band.data + self.band.reflectance_add
+        return rho / np.sin(np.deg2rad(self.band.sun_elevation))
 # ---------------------------
 # FUNCIONES
 # ---------------------------
@@ -77,8 +80,8 @@ def cargar_mask(dia_path):
     crs = None
 
     mask_paths = (
-        glob.glob(os.path.join(dia_path, "*detection*.tif")) +
-        glob.glob(os.path.join(dia_path, "*correction*.tif"))
+        glob.glob(os.path.join(dia_path, "*detection_5d_2*.tif")) +
+        glob.glob(os.path.join(dia_path, "*alse_alarm_correction_5d_2_*.tif"))
     )
 
     if mask_paths:
@@ -232,7 +235,7 @@ for estado in os.listdir(root):
                     np.logical_not(band7_prev_median_dilatada)
                 )
 
-                # # Superposición simple: banda 7 corregida + máscara dilatada
+                # Superposición simple: banda 7 corregida + máscara dilatada
                 # plt.figure(figsize=(10,10))
                 # plt.imshow(band7_corr, cmap='gray')  # imagen base
                 # plt.imshow(band7_prev_median_dilatada, cmap='Reds', alpha=0.5)  # máscara semitransparente
@@ -240,32 +243,17 @@ for estado in os.listdir(root):
                 # plt.axis('off')
                 # plt.show()
 
-                # # Comparación de máscaras
-                # fig, axes = plt.subplots(1,3, figsize=(18,6))
-
-                # # Máscara dilatada
-                # axes[0].imshow(band7_corr, cmap='gray')  # base
-                # axes[0].imshow(mask_dilatada, cmap='Blues', alpha=0.5)  # máscara semitransparente
-                # axes[0].set_title('Mask Dilatada')
-                # axes[0].axis('off')
-
-                # # Band7 prev median dilatada
-                # axes[1].imshow(band7_corr, cmap='gray')  # base
-                # axes[1].imshow(band7_prev_median_dilatada, cmap='Reds', alpha=0.5)
-                # axes[1].set_title('Band7 Prev Median Dilatada')
-                # axes[1].axis('off')
-
+                
+                # plt.figure(figsize=(10,10))
                 # # Comparación de todas las máscaras
-                # axes[2].imshow(band7_corr, cmap='gray')  # base
-                # axes[2].imshow(mask_dilatada, cmap='Blues', alpha=0.4)
-                # axes[2].imshow(band7_prev_median_dilatada, cmap='Reds', alpha=0.4)
-                # axes[2].imshow(mask_actual, cmap='Greens', alpha=0.4)
-                # axes[2].set_title('Comparación de máscaras')
-                # axes[2].axis('off')
-
-                # plt.tight_layout()
+                # plt.imshow(band7_corr, cmap='gray')  # base
+                # plt.imshow(mask_dilatada, cmap='Blues', alpha=0.4)
+                # plt.imshow(band7_prev_median_dilatada, cmap='Reds', alpha=0.4)
+                # plt.imshow(mask_actual, cmap='Greens', alpha=0.4)
+                # plt.title('Comparación de máscaras')
+                # plt.axis('off')
                 # plt.show()
-                # # guardamos la mascara final corregida en la misma carpeta del dia actual con el nombre "Mask_corrrected_ID.tif"
+                #guardamos la mascara final corregida en la misma carpeta del dia actual con el nombre "Mask_corrrected_ID.tif"
                 
 
                 print('-' * 50)
@@ -297,7 +285,7 @@ for estado in os.listdir(root):
                 estadisticas = ["ID", "Pixeles detectados", "Pixeles corregido por mascaras (persistencia temporal)", "Pixeles corregidos por brillo en banda 7(falsa alarma)","pixeles finales", "comission Error"]
                 row = [ID, total_mask_actual,total_eliminados_prev, total_eliminados_b7, total_final, comision_error]
 
-                estadisticas_path = os.path.join(root,'estadisticas.csv')
+                estadisticas_path = os.path.join(root,'estadisticas4_DB75yDM11_.csv')
 
                 file_exists = os.path.isfile(estadisticas_path)
 
@@ -309,7 +297,7 @@ for estado in os.listdir(root):
 
 
                 # Definimos ruta de salida
-                output_path = os.path.join(dia_path, f"Mask_corrected_{ID}.tif")
+                output_path = os.path.join(dia_path, f"Mask_corrected_relaxed_{ID}.tif")
 
                 # Creamos metadata basada en la máscara actual
                 out_meta = {

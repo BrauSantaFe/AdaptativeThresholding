@@ -3,7 +3,7 @@ import glob
 
 if __name__ == "__main__":
 
-    root = "/home/brauliosg/Documents/Mexico/FIRE/update_0"
+    root = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/update_0"
 
     for estado in os.listdir(root):
         estado_path = os.path.join(root, estado)
