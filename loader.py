@@ -60,8 +60,8 @@ class Radiometric_correction:
 
 
 class GeneticAlgorithm:
-    def __init__(self, pop_size: int = 50, generations: int = 100,
-                 pc: float = 0.8, pm: float = 0.2, elite_size: int = 4,
+    def __init__(self, pop_size: int = 70, generations: int = 100,
+                 pc: float = 0.8, pm: float = 0.1, elite_size: int = 2,
                  sample_fraction: float = 0.01, min_sample: int = 65536) -> None:
 
         self.pop_size: int = pop_size
@@ -72,14 +72,17 @@ class GeneticAlgorithm:
         self.sample_fraction: float = sample_fraction
         self.min_sample: int = min_sample
 
-        self.LB: np.ndarray = np.array([0.5, 0.5,  0.1, 0.05, 1.0])
-        self.UB: np.ndarray = np.array([3.5, 3.5,  1.0, 1.0, 5.0])
+                # Máxima exploración (cuidado con la convergencia lenta)
+        self.LB: np.ndarray = np.array([0.01, 0.01, -0.5,  0.0,   0.0])
+        self.UB: np.ndarray = np.array([7.0,  7.0,   3.0,  2.0,  12.0])
         self.n_vars: int = len(self.LB)
 
         self.fitness_history: List[float] = []
+        self.rng = np.random.default_rng()
 
     def initialize_population(self) -> np.ndarray:
-        return self.LB + (self.UB - self.LB) * np.random.rand(self.pop_size, self.n_vars)
+        # self.rng.random() equivale al viejo np.random.rand() pero es más rápido y seguro
+        return self.LB + (self.UB - self.LB) * self.rng.random((self.pop_size, self.n_vars))
 
     def evaluate_kapur(self, thresholds: np.ndarray, features_sample: np.ndarray) -> float:
         eps: float = 1e-12
@@ -166,7 +169,7 @@ class Segmenter5d:
 
 if __name__ == "__main__":
     # Apuntamos a la raíz de la actualización
-    root_update = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/previos"
+    root_update = "/mnt/wwn-0x5000c500fad8a04f-part2/Mexico/FIRE/prueba"
     bandas = ['B4', 'B5', 'B6', 'B7']
 
     # 1. Iterar sobre cada estado (aguascalientes, chihuahua, etc.)
@@ -176,10 +179,10 @@ if __name__ == "__main__":
         if not os.path.isdir(ruta_estado):
             continue
             
-        print(f"\n" + "="*60)
-        print(f"PROCESANDO ESTADO: {estado.upper()}")
-        print("="*60)
-        ID = ruta_estado.split('_')[-1]  # Extraemos el ID del estado
+        print(f"\n" + "-"*60)
+        print(f"Procesando: {estado.upper()}")
+        print("*"*60)
+        
 
         # 2. Iterar sobre cada carpeta de fecha/ID (ej: 20200613_FXX62)
         for subdir in os.listdir(ruta_estado):
@@ -188,9 +191,9 @@ if __name__ == "__main__":
             if not os.path.isdir(ruta):
                 continue
 
-            # Extraemos el ID dinámicamente (lo que esté después del último '_')
-            # Para '20200613_FXX62' devolverá 'FXX62'
-            #ID = subdir.split('_')[-1] if '_' in subdir else subdir
+            ID = ruta[-5:]# Extraemos el ID del estado
+            print(f"ID extraído: {ID}")
+
 
             palabras_clave = []
 
@@ -232,12 +235,16 @@ if __name__ == "__main__":
                 F5d = np.nan_to_num(np.stack([F1, F2, F3, F4, F5], axis=1))
 
                 # Límites del espacio de búsqueda (Asegúrate que coincidan con tus 5 variables)
-                LB = np.array([0.5, 0.5, 0.1, 0.05, 1.0])
-                UB = np.array([3.5, 3.5, 1.0, 1.0, 5.0])
+                LB = np.array([0.0, 0.0, -0.5,  0.0,   0.0])
+                UB = np.array([7.0,  7.0,   3.0,  2.0,  12.0])
+
 
                 # --- ALGORITMO GENÉTICO ---
                 print(f"Ejecutando GA para {ID}...")
-                ga5 = GeneticAlgorithm(generations=100)
+                ga5 = GeneticAlgorithm(generations=150
+                                       , pop_size=50, pc=0.8, pm=0.2, elite_size=2,
+                                       sample_fraction=0.01, min_sample=65536
+                                       )
                 ga5.LB = LB
                 ga5.UB = UB
                 ga5.n_vars = 5
@@ -252,7 +259,7 @@ if __name__ == "__main__":
 
                 # Definir nombre de salida según el contexto
                 prefix = "False_alarm_correction" if 'previos' in ruta else "Active_fire_detection"
-                out_path = os.path.join(ruta, f"{prefix}_5d_2_{ID}.tif")
+                out_path = os.path.join(ruta, f"{prefix}_1_{ID}.tif")
 
                 with rio.open(out_path, "w", **meta) as dst:
                     dst.write(mask5_uint8, 1)
